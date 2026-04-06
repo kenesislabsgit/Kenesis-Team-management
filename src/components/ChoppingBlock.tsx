@@ -18,6 +18,7 @@ import {
 import { db } from '../firebase';
 import { UserProfile, ReviewCycle, Ballot } from '../types';
 import { format, addDays, isAfter } from 'date-fns';
+import { APP_CONFIG } from '../constants';
 import { 
   Shield, 
   AlertTriangle, 
@@ -48,7 +49,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
   const [myBallot, setMyBallot] = useState<Ballot | null>(null);
   const [allBallots, setAllBallots] = useState<Ballot[]>([]);
   const [scores, setScores] = useState<{ [uid: string]: { score: number; reason: string } }>({});
-  const [threshold, setThreshold] = useState(5.0);
+  const [threshold, setThreshold] = useState(APP_CONFIG.CHOPPING_BLOCK_THRESHOLD);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [editCycle, setEditCycle] = useState<{
@@ -58,9 +59,9 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
     threshold: number;
   }>({
     startDate: format(new Date(), 'yyyy-MM-dd'),
-    endDate: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
+    endDate: format(addDays(new Date(), APP_CONFIG.CHOPPING_BLOCK_CYCLE_DAYS), 'yyyy-MM-dd'),
     status: 'active',
-    threshold: 5.0
+    threshold: APP_CONFIG.CHOPPING_BLOCK_THRESHOLD
   });
 
   const founders = allUsers.filter(u => u.role === 'founder' || u.role === 'admin');
@@ -130,7 +131,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
       // Create first cycle
       await addDoc(collection(db, 'reviewCycles'), {
         startDate: serverTimestamp(),
-        endDate: Timestamp.fromDate(addDays(new Date(), 14)),
+        endDate: Timestamp.fromDate(addDays(new Date(), APP_CONFIG.CHOPPING_BLOCK_CYCLE_DAYS)),
         status: 'voting',
         threshold: threshold,
         remindersSent: []
@@ -219,9 +220,9 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
     } else {
       setEditCycle({
         startDate: format(new Date(), 'yyyy-MM-dd'),
-        endDate: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
+        endDate: format(addDays(new Date(), APP_CONFIG.CHOPPING_BLOCK_CYCLE_DAYS), 'yyyy-MM-dd'),
         status: 'active',
-        threshold: 5.0
+        threshold: APP_CONFIG.CHOPPING_BLOCK_THRESHOLD
       });
     }
     setIsManageModalOpen(true);
@@ -288,7 +289,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
       const underperformerUids: string[] = [];
       
       Object.keys(totalScores).forEach(uid => {
-        const avg = voterCounts[uid] > 0 ? totalScores[uid] / voterCounts[uid] : 10; // Default to 10 if no votes (safe)
+        const avg = voterCounts[uid] > 0 ? totalScores[uid] / voterCounts[uid] : APP_CONFIG.SCORE_DEFAULT; // Default to configured default if no votes (safe)
         avgScores[uid] = avg;
         
         if (avg < threshold) {
@@ -306,7 +307,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
       // Create next cycle
       await addDoc(collection(db, 'reviewCycles'), {
         startDate: serverTimestamp(),
-        endDate: Timestamp.fromDate(addDays(new Date(), 14)),
+        endDate: Timestamp.fromDate(addDays(new Date(), APP_CONFIG.CHOPPING_BLOCK_CYCLE_DAYS)),
         status: 'active',
         threshold: threshold
       });
@@ -380,7 +381,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
         <Lock size={48} className="text-gray-200 mb-4" />
         <h3 className="text-xl font-bold text-gray-900">Restricted Access</h3>
         <p className="text-sm text-gray-500 max-w-md mt-2">
-          The Chopping Block is a private governance system reserved for company founders.
+          The Chopping Block is a private governance system reserved for {APP_CONFIG.BRAND_NAME.split(' ')[0]} founders.
         </p>
       </div>
     );
@@ -390,7 +391,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
     <div className="space-y-8 pb-20">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-2xl font-black text-gray-900">The Chopping Block</h3>
+          <h3 className="text-2xl font-black text-gray-900">{APP_CONFIG.BRAND_NAME.split(' ')[0]} Chopping Block</h3>
           <p className="text-sm text-gray-500 mt-1">Founder performance governance & secret ballot.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -754,7 +755,7 @@ export function ChoppingBlock({ user, profile, allUsers, addToast, showModal, cl
               </li>
               <li className="flex gap-3">
                 <div className="h-5 w-5 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center shrink-0 font-bold">4</div>
-                <p><span className="text-white font-bold">Penalty:</span> Underperforming for 2 consecutive cycles triggers a <span className="text-red-400 font-bold">1.5% Equity Dilution</span>.</p>
+                <p><span className="text-white font-bold">Penalty:</span> Underperforming for 2 consecutive cycles triggers a <span className="text-red-400 font-bold">{APP_CONFIG.CHOPPING_BLOCK_EQUITY_PENALTY}% Equity Dilution</span>.</p>
               </li>
               <li className="flex gap-3">
                 <div className="h-5 w-5 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center shrink-0 font-bold">5</div>

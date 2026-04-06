@@ -98,6 +98,7 @@ import {
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO, differenceInHours, differenceInDays, startOfDay, endOfDay, subDays } from 'date-fns';
 import { cn } from './lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { APP_CONFIG } from './constants';
 
 // --- Firebase Error Handling ---
 enum OperationType {
@@ -206,7 +207,7 @@ const AttendanceRow = ({ record, userProfile, onPhotoClick }: { record: Attendan
       </td>
       <td className="px-6 py-4">
         <div className="flex items-center gap-2">
-          <div className={cn("h-1.5 w-1.5 rounded-full", record.totalHours && record.totalHours >= 8 ? "bg-green-500" : "bg-orange-500")} />
+          <div className={cn("h-1.5 w-1.5 rounded-full", record.totalHours && record.totalHours >= APP_CONFIG.STANDARD_WORK_DAY_HOURS ? "bg-green-500" : "bg-orange-500")} />
           <span className="text-xs font-bold">{record.totalHours?.toFixed(1) || '0.0'} hrs</span>
         </div>
       </td>
@@ -214,7 +215,8 @@ const AttendanceRow = ({ record, userProfile, onPhotoClick }: { record: Attendan
         <span className={cn(
           "rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider",
           record.status === 'present' ? "bg-green-100 text-green-700" : 
-          record.status === 'wfh' ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"
+          record.status === 'late' ? "bg-red-100 text-red-700 animate-pulse" :
+          record.status === 'wfh' ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-700"
         )}>
           {record.status}
         </span>
@@ -277,6 +279,29 @@ export default function App() {
   const [reportLink, setReportLink] = useState('');
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
+  const calculateLeaveBalance = () => {
+    const currentYear = new Date().getFullYear();
+    const approvedLeaves = leaves.filter(l => {
+      const isApproved = l.status === 'approved';
+      const isLeave = l.type === 'leave';
+      const start = parseISO(l.startDate);
+      const isInCurrentYear = start.getFullYear() === currentYear;
+      return isApproved && isLeave && isInCurrentYear;
+    });
+
+    const totalDays = approvedLeaves.reduce((acc, curr) => {
+      const start = parseISO(curr.startDate);
+      const end = parseISO(curr.endDate);
+      // differenceInDays(end, start) + 1 to include both start and end dates
+      return acc + (differenceInDays(end, start) + 1);
+    }, 0);
+
+    return totalDays;
+  };
+
+  const leaveBalance = calculateLeaveBalance();
+  const leavePercentage = Math.min((leaveBalance / APP_CONFIG.ANNUAL_LEAVE_LIMIT) * 100, 100);
+
   const [isCheckOutConfirmOpen, setIsCheckOutConfirmOpen] = useState(false);
   const [selectedReportForTasks, setSelectedReportForTasks] = useState<DailyReport | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
@@ -725,7 +750,7 @@ export default function App() {
       for (const admin of admins) {
         await addDoc(collection(db, 'notifications'), {
           uid: admin.uid,
-          title: 'Kenesis AI: Report Audit',
+          title: `${APP_CONFIG.BRAND_NAME.split(' ')[0]} AI: Report Audit`,
           message: auditMessage,
           type: 'warning',
           read: false,
@@ -737,7 +762,7 @@ export default function App() {
       for (const uid of missingUids) {
         await addDoc(collection(db, 'notifications'), {
           uid: uid,
-          title: 'Kenesis AI: Missing Report',
+          title: `${APP_CONFIG.BRAND_NAME.split(' ')[0]} AI: Missing Report`,
           message: `Our records show you checked in today but haven't submitted your daily report yet. Please submit it before the end of the day!`,
           type: 'error',
           read: false,
@@ -792,12 +817,12 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    // Check file size (limit to 5MB for source, it will be compressed anyway)
-    if (file.size > 5 * 1024 * 1024) {
+    // Check file size
+    if (file.size > APP_CONFIG.MAX_FILE_SIZE_BYTES) {
       if (file.type.startsWith('image/')) {
         // We will compress it below
       } else {
-        addToast("File is too large. Please upload a file smaller than 5MB.", "warning");
+        addToast(`File is too large. Please upload a file smaller than ${APP_CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`, "warning");
         return;
       }
     }
@@ -812,7 +837,7 @@ export default function App() {
             let width = img.width;
             let height = img.height;
             // Reduced max dimension for better storage efficiency
-            const maxDimension = 600; 
+            const maxDimension = APP_CONFIG.MAX_IMAGE_DIMENSION; 
 
             if (width > height) {
               if (width > maxDimension) {
@@ -830,8 +855,8 @@ export default function App() {
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(img, 0, 0, width, height);
-            // Reduced quality to 0.5 for significant storage savings
-            resolve(canvas.toDataURL('image/jpeg', 0.5));
+            // Reduced quality for significant storage savings
+            resolve(canvas.toDataURL('image/jpeg', APP_CONFIG.IMAGE_QUALITY));
           };
           img.src = event.target?.result as string;
         };
@@ -848,18 +873,28 @@ export default function App() {
             reader.readAsDataURL(file);
           });
 
-      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const now = new Date();
+      const todayStr = format(now, 'yyyy-MM-dd');
       
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         try {
+          // Check for lateness
+          let status: 'present' | 'late' = 'present';
+          const deadline = new Date(now);
+          deadline.setHours(APP_CONFIG.CHECK_IN_DEADLINE_HOUR, APP_CONFIG.CHECK_IN_DEADLINE_MINUTE, 0, 0);
+          
+          if (now > deadline) {
+            status = 'late';
+          }
+
           await addDoc(collection(db, 'attendance'), {
             uid: user.uid,
             date: todayStr,
             checkInTime: serverTimestamp(),
             checkInLocation: location,
             checkInPhoto: base64String,
-            status: 'present'
+            status: status
           });
 
           // Add notification
@@ -1132,7 +1167,7 @@ export default function App() {
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `You are the Kenesis Vision AI Assistant. You have access to the team's data.
+        contents: `You are the ${APP_CONFIG.BRAND_NAME} AI Assistant. You have access to the team's data.
         Current User: ${profile?.name} (${profile?.role})
         Team Data: ${JSON.stringify({ users, attendance, reports })}
         
@@ -1233,6 +1268,15 @@ export default function App() {
       addToast("Please provide a reason.", "warning");
       return;
     }
+
+    if (type === 'leave') {
+      const requestedDays = differenceInDays(parseISO(endDate), parseISO(startDate)) + 1;
+      if (leaveBalance + requestedDays > APP_CONFIG.ANNUAL_LEAVE_LIMIT) {
+        addToast(`You only have ${APP_CONFIG.ANNUAL_LEAVE_LIMIT - leaveBalance} days of leave remaining for this year.`, "warning");
+        return;
+      }
+    }
+
     try {
       await addDoc(collection(db, 'leaves'), {
         uid: user.uid,
@@ -1288,8 +1332,8 @@ export default function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0a]">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#f27d26] border-t-transparent" />
-          <p className="text-sm font-medium text-gray-400">Kenesis Vision Loading...</p>
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm font-medium text-gray-400">{APP_CONFIG.BRAND_NAME} Loading...</p>
         </div>
       </div>
     );
@@ -1300,8 +1344,8 @@ export default function App() {
       <div className="flex h-screen items-center justify-center bg-[#0a0a0a] p-4">
         <div className="w-full max-w-md space-y-8 text-center">
           <div className="flex justify-center gap-3">
-            <div className="h-12 w-12 rounded-xl bg-[#f27d26] flex items-center justify-center font-bold text-2xl text-black shadow-[0_0_20px_rgba(242,125,38,0.3)]">K</div>
-            <h1 className="text-4xl font-black tracking-tighter text-white uppercase">Kenesis <span className="text-[#f27d26]">Vision</span></h1>
+            <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center font-bold text-2xl text-black shadow-[0_0_20px_rgba(242,125,38,0.3)]">{APP_CONFIG.BRAND_NAME.split(' ')[0][0]}</div>
+            <h1 className="text-4xl font-black tracking-tighter text-white uppercase">{APP_CONFIG.BRAND_NAME.split(' ')[0]} <span className="text-primary">{APP_CONFIG.BRAND_NAME.split(' ')[1]}</span></h1>
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold text-white">Worker Tracking System</h2>
@@ -1348,7 +1392,7 @@ export default function App() {
                 {activeTab === 'reports' && 'Daily Reports'}
                 {activeTab === 'analytics' && 'Team Analytics'}
                 {activeTab === 'bot' && 'AI Analytics Bot'}
-                {activeTab === 'brainstorm' && 'Kenesis Brainstorm'}
+                {activeTab === 'brainstorm' && `${APP_CONFIG.BRAND_NAME.split(' ')[0]} Brainstorm`}
                 {activeTab === 'chopping-block' && 'The Chopping Block'}
                 {activeTab === 'settings' && 'Account Settings'}
               </h2>
@@ -1470,7 +1514,7 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="text-lg font-bold">AI Team Insights</h4>
-                        <p className="text-xs text-gray-400">Generate a comprehensive performance analysis using Kenesis AI.</p>
+                        <p className="text-xs text-gray-400">Generate a comprehensive performance analysis using {APP_CONFIG.BRAND_NAME.split(' ')[0]} AI.</p>
                       </div>
                     </div>
                     <button 
@@ -1514,7 +1558,7 @@ export default function App() {
                           </div>
                           <button 
                             onClick={handleCheckInClick}
-                            className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#f27d26] px-6 py-4 text-white font-bold hover:bg-[#d96a1d] transition-all shadow-lg shadow-orange-500/20"
+                            className="flex w-full items-center justify-center gap-3 rounded-xl bg-primary px-6 py-4 text-white font-bold hover:opacity-90 transition-all shadow-lg shadow-orange-500/20"
                           >
                             <Camera size={20} />
                             {todayRecord?.checkOutTime ? "Start Another Shift" : "Check In Now"}
@@ -2064,19 +2108,10 @@ export default function App() {
                         <div>
                           <div className="flex justify-between text-xs mb-2">
                             <span className="font-medium text-gray-600">Annual Leave</span>
-                            <span className="font-bold text-gray-900">12 / 18 days</span>
+                            <span className="font-bold text-gray-900">{leaveBalance} / {APP_CONFIG.ANNUAL_LEAVE_LIMIT} days</span>
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                            <div className="h-full bg-orange-500" style={{ width: '66%' }} />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex justify-between text-xs mb-2">
-                            <span className="font-medium text-gray-600">Sick Leave</span>
-                            <span className="font-bold text-gray-900">4 / 8 days</span>
-                          </div>
-                          <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                            <div className="h-full bg-blue-500" style={{ width: '50%' }} />
+                            <div className="h-full bg-orange-500" style={{ width: `${leavePercentage}%` }} />
                           </div>
                         </div>
                       </div>
@@ -2392,7 +2427,7 @@ export default function App() {
               <div className="space-y-8">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900">Kenesis Brainstorm</h3>
+                    <h3 className="text-xl font-bold text-gray-900">{APP_CONFIG.BRAND_NAME.split(' ')[0]} Brainstorm</h3>
                     <p className="text-sm text-gray-500 mt-1">Post ideas, to-dos, and discuss future plans.</p>
                   </div>
                 </div>
@@ -2596,17 +2631,17 @@ export default function App() {
                             };
                           })
                         }>
-                          <defs>
-                            <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#f27d26" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="#f27d26" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
+                            <defs>
+                              <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={APP_CONFIG.PRIMARY_COLOR} stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor={APP_CONFIG.PRIMARY_COLOR} stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#999'}} />
                           <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#999'}} />
                           <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)'}} />
-                          <Area type="monotone" dataKey="present" stroke="#f27d26" strokeWidth={3} fillOpacity={1} fill="url(#colorPresent)" />
+                            <Area type="monotone" dataKey="present" stroke={APP_CONFIG.PRIMARY_COLOR} strokeWidth={3} fillOpacity={1} fill="url(#colorPresent)" />
                           <Area type="monotone" dataKey="wfh" stroke="#3b82f6" strokeWidth={3} fillOpacity={0} />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -2631,7 +2666,7 @@ export default function App() {
                             dataKey="value"
                           >
                             {[0, 1, 2, 3].map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={['#f27d26', '#000000', '#3b82f6', '#10b981'][index]} />
+                              <Cell key={`cell-${index}`} fill={[APP_CONFIG.PRIMARY_COLOR, '#000000', '#3b82f6', '#10b981'][index]} />
                             ))}
                           </Pie>
                         </PieChart>
@@ -2885,15 +2920,15 @@ export default function App() {
                 <div className="space-y-6 text-sm text-gray-600">
                   <section>
                     <h4 className="font-bold text-gray-900 mb-2">1. Working Hours</h4>
-                    <p>Standard working hours are 8 hours per day. Check-in must be completed by 10:00 AM. Late arrivals must be justified.</p>
+                    <p>Standard working hours are {APP_CONFIG.STANDARD_WORK_DAY_HOURS} hours per day. Check-in must be completed by {APP_CONFIG.CHECK_IN_DEADLINE_HOUR}:{APP_CONFIG.CHECK_IN_DEADLINE_MINUTE.toString().padStart(2, '0')} AM. Late arrivals must be justified.</p>
                   </section>
                   <section>
                     <h4 className="font-bold text-gray-900 mb-2">2. Leave Requests</h4>
-                    <p>Leave requests should be submitted at least 48 hours in advance. Emergency leaves can be requested on the same day with valid proof.</p>
+                    <p>Employees are entitled to {APP_CONFIG.ANNUAL_LEAVE_LIMIT} days of annual leave per year. There are no separate sick leaves. All leave requests should be submitted at least {APP_CONFIG.LEAVE_REQUEST_ADVANCE_HOURS} hours in advance. Emergency leaves can be requested on the same day with valid proof.</p>
                   </section>
                   <section>
                     <h4 className="font-bold text-gray-900 mb-2">3. Work From Home</h4>
-                    <p>WFH is allowed up to 2 days per week for eligible roles. Geolocation proof is still required for remote check-ins.</p>
+                    <p>WFH is allowed up to {APP_CONFIG.WFH_WEEKLY_LIMIT} days per week for eligible roles. Geolocation proof is still required for remote check-ins.</p>
                   </section>
                   <section>
                     <h4 className="font-bold text-gray-900 mb-2">4. Daily Reports</h4>

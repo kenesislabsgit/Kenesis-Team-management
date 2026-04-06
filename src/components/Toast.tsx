@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, AlertCircle, Info, XCircle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
+import { APP_CONFIG } from '../constants';
+
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface ToastProps {
@@ -16,7 +18,7 @@ export const Toast = ({ id, message, type, onClose }: ToastProps) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose(id);
-    }, 5000);
+    }, APP_CONFIG.TOAST_DURATION);
     return () => clearTimeout(timer);
   }, [id, onClose]);
 

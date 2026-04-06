@@ -21,7 +21,8 @@ export interface AttendanceRecord {
   checkInPhoto?: string;
   checkOutPhoto?: string;
   totalHours?: number;
-  status: 'present' | 'wfh' | 'leave';
+  status: 'present' | 'wfh' | 'leave' | 'late';
+  isLate?: boolean;
 }
 
 export interface TodoItem {

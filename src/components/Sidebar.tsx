@@ -19,6 +19,7 @@ import {
   Users
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { APP_CONFIG } from '../constants';
 
 interface SidebarProps {
   activeTab: string;
@@ -33,7 +34,7 @@ const menuItems = [
   { id: 'attendance', label: 'Attendance Log', icon: Clock },
   { id: 'leaves', label: 'Leave & WFH', icon: Plane },
   { id: 'reports', label: 'Daily Reports', icon: FileText },
-  { id: 'brainstorm', label: 'Kenesis Brainstorm', icon: Lightbulb },
+  { id: 'brainstorm', label: `${APP_CONFIG.BRAND_NAME.split(' ')[0]} Brainstorm`, icon: Lightbulb },
   { id: 'analytics', label: 'Team Analytics', icon: BarChart3 },
   { id: 'bot', label: 'AI Analytics Bot', icon: Bot },
   { id: 'team-management', label: 'Team Management', icon: Users },
@@ -61,11 +62,13 @@ export function Sidebar({ activeTab, setActiveTab, user, profile, onLogout }: Si
     return true;
   });
 
+  const [brandFirst, brandSecond] = APP_CONFIG.BRAND_NAME.split(' ');
+
   return (
     <div className="flex h-screen w-64 flex-col bg-[#0a0a0a] text-white">
       <div className="flex items-center gap-2 p-6">
-        <div className="h-8 w-8 rounded bg-[#f27d26] flex items-center justify-center font-bold text-black">K</div>
-        <h1 className="text-xl font-bold tracking-tight">Kenesis <span className="text-[#f27d26]">Vision</span></h1>
+        <div className="h-8 w-8 rounded bg-primary flex items-center justify-center font-bold text-black">{brandFirst?.[0] || 'K'}</div>
+        <h1 className="text-xl font-bold tracking-tight">{brandFirst} <span className="text-primary">{brandSecond || ''}</span></h1>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -78,7 +81,7 @@ export function Sidebar({ activeTab, setActiveTab, user, profile, onLogout }: Si
               className={cn(
                 "flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors",
                 activeTab === item.id 
-                  ? "bg-[#1a1a1a] text-white border-r-2 border-[#f27d26]" 
+                  ? "bg-[#1a1a1a] text-white border-r-2 border-primary" 
                   : "text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
               )}
             >
@@ -86,7 +89,7 @@ export function Sidebar({ activeTab, setActiveTab, user, profile, onLogout }: Si
                 <item.icon size={18} />
                 <span>{item.label}</span>
               </div>
-              {activeTab === item.id && <div className="h-1.5 w-1.5 rounded-full bg-[#f27d26]" />}
+              {activeTab === item.id && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
             </button>
           ))}
         </nav>
@@ -110,7 +113,7 @@ export function Sidebar({ activeTab, setActiveTab, user, profile, onLogout }: Si
           className={cn(
             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
             activeTab === 'settings' 
-              ? "bg-[#1a1a1a] text-white border-r-2 border-[#f27d26]" 
+              ? "bg-[#1a1a1a] text-white border-r-2 border-primary" 
               : "text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
           )}
         >
